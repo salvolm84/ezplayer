@@ -37,7 +37,8 @@ set(GP_CORE_SOURCES
     Source/Core/DrumMap.cpp
     Source/Core/Song.cpp
     Source/Core/PlaybackEngine.cpp
-    Source/Core/MidiExport.cpp)
+    Source/Core/MidiExport.cpp
+    Source/Core/RhythmIndex.cpp)
 
 if(GP_BUILD_PLUGIN)
 juce_add_plugin(GroovePlayer
@@ -67,7 +68,8 @@ target_sources(GroovePlayer
         Source/UI/SongLane.cpp
         Source/UI/TransportBar.cpp
         Source/UI/RemapEditor.cpp
-        Source/UI/SettingsPanel.cpp)
+        Source/UI/SettingsPanel.cpp
+        Source/UI/BeatSearchPanel.cpp)
 
 target_include_directories(GroovePlayer PRIVATE Source)
 
@@ -81,7 +83,7 @@ target_compile_definitions(GroovePlayer
 target_link_libraries(GroovePlayer
     PRIVATE
         juce::juce_audio_utils
-        SQLite::SQLite3
+        SQLite3::SQLite3
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -101,7 +103,7 @@ if(GP_BUILD_TESTS)
             juce::juce_events
             juce::juce_data_structures
             juce::juce_audio_basics
-            SQLite::SQLite3
+            SQLite3::SQLite3
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)

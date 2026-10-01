@@ -2,6 +2,7 @@
 
 #include "Theme.h"
 #include "PatternView.h"
+#include "BeatSearchPanel.h"
 #include "PluginProcessor.h"
 
 // The MIDI groove browser: library tree (Toontrack folder conventions), search and
@@ -37,8 +38,15 @@ private:
 
     juce::TextEditor searchBox;
     juce::ComboBox typeBox, feelBox, meterBox, tempoBox, styleBox;
-    juce::TextButton favButton { "Favourites" }, scopeButton { "In folder" }, clearButton { "Clear" };
+    juce::TextButton favButton { "Favourites" }, scopeButton { "In folder" }, clearButton { "Clear" }, beatButton { "Beat search" };
     juce::Label countLabel, statusLabel, folderLabel;
+
+    BeatSearchPanel beatPanel;
+    std::shared_ptr<const tt::RhythmIndex> rhythm;
+    std::unordered_map<int, float> matchScores;
+    bool beatResults = false;
+    int patternPreviewId = 0;
+    bool isPatternPlaying() const { return patternPreviewId != 0 && proc.isPreviewing() && proc.getPreviewId() == patternPreviewId; }
 
     juce::TableListBox table;
     std::vector<int> rows;
@@ -55,7 +63,7 @@ private:
     bool suppressNextClick = false;
     bool wasScanning = false;
 
-    enum Columns { colFav = 1, colName, colMeter, colTempo, colLength, colType, colLocation };
+    enum Columns { colFav = 1, colName, colMeter, colTempo, colLength, colType, colLocation, colMatch };
 
     void libraryChanged();
     void showFolder (int folder);
@@ -67,6 +75,7 @@ private:
     void restoreSelectedFolder();
     tt::SearchFilter makeFilter() const;
     bool filtersActive() const;
+    bool beatSearchActive() const { return beatButton.getToggleState() && beatPanel.hasHits(); }
     void resetFilters();
     juce::String lengthText (const tt::GrooveInfo&) const;
     void startDragOfGroove (int grooveIndex, juce::Component* source);

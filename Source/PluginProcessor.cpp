@@ -134,11 +134,12 @@ void GroovePlayerProcessor::setDrumMap (const tt::DrumMap& m)
     drumMapListeners.call ([] (juce::ChangeListener& l) { l.changeListenerCallback (nullptr); });
 }
 
-int GroovePlayerProcessor::startPreview (tt::Groove::Ptr g)
+int GroovePlayerProcessor::startPreview (tt::Groove::Ptr g, bool updateInPlace)
 {
     if (g == nullptr)
         return 0;
 
+    const bool keep = updateInPlace && currentPreview != nullptr;
     currentPreview = g;
     tt::Timeline::Ptr tl = new tt::Timeline();
     for (auto& n : g->notes)
@@ -146,7 +147,7 @@ int GroovePlayerProcessor::startPreview (tt::Groove::Ptr g)
 
     tl->length = g->lengthBeats;
     tl->tempo = g->tempo;
-    tl->id = ++previewCounter;
+    tl->id = keep ? previewCounter : ++previewCounter;
     engine.startPreview (tl);
     return tl->id;
 }

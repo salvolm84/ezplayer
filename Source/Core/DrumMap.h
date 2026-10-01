@@ -37,6 +37,7 @@ namespace tt
         static bool loadFromFile (const juce::File&, DrumMap& result);
 
         static DrumMap toontrackToGM();
+        static DrumMap toontrackToIOF();
         static juce::Array<DrumMap> builtInPresets();
     };
 }

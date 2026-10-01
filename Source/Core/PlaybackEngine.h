@@ -22,7 +22,8 @@ namespace tt
         std::vector<TimelineNote> notes; // sorted by start
         double length = 0.0;             // beats
         double tempo = 0.0;              // original tempo (previews), 0 = unknown
-        int id = 0;                      // identifies a preview request
+        int id = 0;                      // preview id; publishing a new timeline with the same
+                                         // id updates the preview without restarting it
     };
 
     // Hands ref-counted objects from the message thread to the audio thread without
@@ -120,7 +121,7 @@ namespace tt
             int mode = -1;        // preview: 0 = own clock, 1 = host locked
             double clock = 0.0;   // preview own clock
             double anchor = 0.0;  // beat where the preview loop starts
-            const Timeline* last = nullptr;
+            int lastId = -1;      // a new preview id restarts the loop; same id = update in place
         };
 
         struct Segment

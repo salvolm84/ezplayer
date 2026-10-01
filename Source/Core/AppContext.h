@@ -3,6 +3,7 @@
 #include "LibraryIndex.h"
 #include "Groove.h"
 #include "DrumMap.h"
+#include "RhythmIndex.h"
 
 #include <juce_events/juce_events.h>
 #include <juce_data_structures/juce_data_structures.h>
@@ -30,6 +31,12 @@ public:
     juce::String getStatusText() const;
 
     //==============================================================================
+    // Beat-search fingerprints, built in the background after every library scan.
+    std::shared_ptr<const tt::RhythmIndex> getRhythmIndex() const { return rhythmIndex; }
+    bool isIndexingRhythms() const;
+    juce::String getRhythmStatusText() const;
+
+    //==============================================================================
     bool isFavourite (const juce::String& absolutePath) const { return favourites.count (absolutePath) > 0; }
     bool isFavourite (int grooveIndex) const;
     void toggleFavourite (int grooveIndex);
@@ -49,16 +56,22 @@ public:
 
 private:
     class ScanThread;
+    class RhythmThread;
 
     std::unique_ptr<juce::PropertiesFile> settings;
     std::shared_ptr<const tt::LibraryIndex> index;
     std::unique_ptr<ScanThread> scanThread;
+    std::shared_ptr<const tt::RhythmIndex> rhythmIndex;
+    std::unique_ptr<RhythmThread> rhythmThread;
     std::unordered_set<juce::String> favourites;
     tt::GrooveCache cache;
     juce::ThreadPool loaderPool { juce::ThreadPoolOptions{}.withThreadName ("GrooveLoader").withNumberOfThreads (2) };
     juce::String lastScanError;
 
     static juce::File getIndexCacheFile() { return getDataFolder().getChildFile ("library-index.bin"); }
+    static juce::File getRhythmCacheFile() { return getDataFolder().getChildFile ("rhythm-index.bin"); }
+    void startRhythmIndexing();
+    void rhythmIndexReady (std::unique_ptr<tt::RhythmIndex>);
     void indexReady (std::unique_ptr<tt::LibraryIndex>);
     void saveFavourites();
 

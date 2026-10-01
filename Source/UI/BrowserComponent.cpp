@@ -121,8 +121,52 @@ BrowserComponent::BrowserComponent (GroovePlayerProcessor& p)
     scopeButton.setTooltip ("Limit search and filters to the selected folder");
     scopeButton.onClick = [this] { runSearch(); };
     clearButton.onClick = [this] { resetFilters(); };
-    for (auto* b : { &favButton, &scopeButton, &clearButton })
+    beatButton.setClickingTogglesState (true);
+    beatButton.setTooltip ("Program a kick / snare / cymbal beat and find the grooves that match it best");
+    beatButton.onClick = [this]
+    {
+        beatPanel.setVisible (beatButton.getToggleState());
+        proc.uiState.setProperty ("beatSearchOpen", beatButton.getToggleState(), nullptr);
+        resized();
+        runSearch();
+    };
+
+    for (auto* b : { &favButton, &scopeButton, &clearButton, &beatButton })
         addAndMakeVisible (*b);
+
+    beatPanel.fromString (proc.uiState.getProperty ("beatPattern").toString());
+    beatPanel.onPatternChanged = [this]
+    {
+        proc.uiState.setProperty ("beatPattern", beatPanel.toString(), nullptr);
+
+        // Hear edits immediately while the pattern is playing.
+        if (isPatternPlaying())
+        {
+            if (beatPanel.hasHits())
+                proc.startPreview (beatPanel.makeGroove(), true);
+            else
+                proc.stopPreview();
+        }
+
+        startTimer (150);
+    };
+    beatPanel.onPlay = [this]
+    {
+        if (isPatternPlaying())
+        {
+            proc.stopPreview();
+        }
+        else if (beatPanel.hasHits())
+        {
+            patternPreviewId = proc.startPreview (beatPanel.makeGroove());
+            previewingGroove = -1;
+            table.repaint();
+        }
+        beatPanel.setPlaying (isPatternPlaying());
+    };
+    addChildComponent (beatPanel);
+    beatButton.setToggleState ((bool) proc.uiState.getProperty ("beatSearchOpen", false), juce::dontSendNotification);
+    beatPanel.setVisible (beatButton.getToggleState());
 
     countLabel.setColour (juce::Label::textColourId, theme::dim);
     countLabel.setFont (theme::font (12.0f));
@@ -153,6 +197,8 @@ BrowserComponent::BrowserComponent (GroovePlayerProcessor& p)
     h.addColumn ("Length", colLength, 62, 50, 110, F::defaultFlags);
     h.addColumn ("Type", colType, 150, 60, 400, F::defaultFlags);
     h.addColumn ("Location", colLocation, 300, 80, 1000, F::defaultFlags);
+    h.addColumn ("Match", colMatch, 70, 50, 120, F::defaultFlags);
+    h.setColumnVisible (colMatch, false);
     h.setStretchToFitActive (true);
     h.setPopupMenuActive (true);
     addAndMakeVisible (table);
@@ -221,6 +267,8 @@ void BrowserComponent::resized()
     scopeButton.setBounds (bar1.removeFromRight (78));
     bar1.removeFromRight (4);
     favButton.setBounds (bar1.removeFromRight (88));
+    bar1.removeFromRight (4);
+    beatButton.setBounds (bar1.removeFromRight (96));
     bar1.removeFromRight (6);
     searchBox.setBounds (bar1);
     r.removeFromTop (5);
@@ -233,6 +281,12 @@ void BrowserComponent::resized()
         bar2.removeFromLeft (5);
     }
     r.removeFromTop (6);
+
+    if (beatPanel.isVisible())
+    {
+        beatPanel.setBounds (r.removeFromTop (124));
+        r.removeFromTop (6);
+    }
 
     auto bar3 = r.removeFromTop (22);
     countLabel.setBounds (bar3.removeFromRight (200));
@@ -264,6 +318,13 @@ void BrowserComponent::changeListenerCallback (juce::ChangeBroadcaster*)
         libraryChanged();
     else
         statusLabel.setText (app.getStatusText(), juce::dontSendNotification);
+
+    if (app.getRhythmIndex() != rhythm)
+    {
+        rhythm = app.getRhythmIndex();
+        if (beatSearchActive())
+            runSearch();
+    }
 }
 
 void BrowserComponent::libraryChanged()
@@ -348,7 +409,7 @@ void BrowserComponent::showFolder (int folder)
 
 bool BrowserComponent::filtersActive() const
 {
-    return makeFilter().isActive();
+    return makeFilter().isActive() || beatSearchActive();
 }
 
 tt::SearchFilter BrowserComponent::makeFilter() const
@@ -425,7 +486,40 @@ void BrowserComponent::runSearch()
     rows.clear();
     table.getHeader().setSortColumnId (0, true);
 
-    if (filter.isActive())
+    matchScores.clear();
+    beatResults = false;
+
+    if (beatSearchActive())
+    {
+        // Beat search: score the (filtered) candidates against the programmed pattern.
+        searchMode = true;
+        showLocation = true;
+        beatResults = true;
+        rhythm = app.getRhythmIndex();
+
+        std::vector<int> candidates;
+        if (filter.isActive())
+        {
+            candidates = index->search (filter, [this] (int i) { return app.isFavourite (i); });
+        }
+        else
+        {
+            auto& sf = index->folders[(size_t) (scopeButton.getToggleState() ? currentFolder : 0)];
+            for (int i = sf.descBegin; i < sf.descEnd; ++i)
+                if (! index->grooves[(size_t) i].isHeading)
+                    candidates.push_back (i);
+        }
+
+        if (rhythm != nullptr && rhythm->library == index)
+        {
+            for (auto& m : rhythm->search (beatPanel.getPattern(), beatPanel.getNum(), beatPanel.getDen(), candidates, 0.35f, 2000))
+            {
+                rows.push_back (m.groove);
+                matchScores[m.groove] = m.score;
+            }
+        }
+    }
+    else if (filter.isActive())
     {
         searchMode = true;
         rows = index->search (filter, [this] (int i) { return app.isFavourite (i); });
@@ -456,8 +550,14 @@ void BrowserComponent::runSearch()
     for (auto i : rows)
         playable += index->grooves[(size_t) i].isHeading ? 0 : 1;
 
-    countLabel.setText (juce::String (playable) + (playable == 1 ? " groove" : " grooves") + (searchMode ? " found" : ""),
-                        juce::dontSendNotification);
+    if (beatResults && (rhythm == nullptr || rhythm->library != index))
+        countLabel.setText ("Beat search: analysing library...", juce::dontSendNotification);
+    else if (beatResults)
+        countLabel.setText (juce::String (playable) + (playable == 1 ? " match" : " matches") + " (best first)",
+                            juce::dontSendNotification);
+    else
+        countLabel.setText (juce::String (playable) + (playable == 1 ? " groove" : " grooves") + (searchMode ? " found" : ""),
+                            juce::dontSendNotification);
 
     updateColumns();
     table.deselectAllRows();
@@ -469,6 +569,7 @@ void BrowserComponent::runSearch()
 void BrowserComponent::updateColumns()
 {
     table.getHeader().setColumnVisible (colLocation, showLocation);
+    table.getHeader().setColumnVisible (colMatch, beatResults);
 }
 
 void BrowserComponent::sortOrderChanged (int col, bool forwards)
@@ -497,6 +598,7 @@ void BrowserComponent::sortOrderChanged (int col, bool forwards)
         if (col == colName)          c = gs[(size_t) a].name.compareNatural (gs[(size_t) b].name);
         else if (col == colType)     c = index->getTypeText (gs[(size_t) a]).compare (index->getTypeText (gs[(size_t) b]));
         else if (col == colLocation) c = a < b ? -1 : (a > b ? 1 : 0); // index order == library order
+        else if (col == colMatch)    c = matchScores[a] > matchScores[b] ? -1 : (matchScores[a] < matchScores[b] ? 1 : 0);
         else                         c = key (a) < key (b) ? -1 : (key (a) > key (b) ? 1 : 0);
         return forwards ? c < 0 : c > 0;
     });
@@ -608,6 +710,23 @@ void BrowserComponent::paintCell (juce::Graphics& g, int row, int col, int w, in
             g.setFont (theme::font (12.0f));
             g.drawText (index->getTypeText (gi), 4, 0, w - 8, h, juce::Justification::centredLeft, true);
             break;
+        case colMatch:
+        {
+            auto it = matchScores.find (gIndex);
+            if (it == matchScores.end())
+                break;
+
+            auto bar = juce::Rectangle<float> (4.0f, h * 0.5f - 3.0f, (float) (w - 40), 6.0f);
+            g.setColour (theme::row.darker (0.3f));
+            g.fillRoundedRectangle (bar, 3.0f);
+            g.setColour (theme::accent.withAlpha (0.4f + 0.6f * it->second));
+            g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * it->second), 3.0f);
+            g.setColour (textColour);
+            g.setFont (theme::font (12.0f));
+            g.drawText (juce::String (juce::roundToInt (it->second * 100.0f)) + "%", w - 36, 0, 34, h,
+                        juce::Justification::centredRight, false);
+            break;
+        }
         case colLocation:
             g.setColour (selected ? juce::Colours::white.withAlpha (0.8f) : theme::dim);
             g.setFont (theme::font (12.0f));
@@ -811,6 +930,13 @@ void BrowserComponent::updatePlayState()
         pattern.setPlayhead (proc.engine.previewPosition.load());
     else
         pattern.setPlayhead (-1.0);
+
+    beatPanel.setPlaying (isPatternPlaying());
+
+    if (beatPanel.isVisible())
+        beatPanel.setStatus (app.isIndexingRhythms() || app.getRhythmIndex() == nullptr
+                                 ? app.getRhythmStatusText()
+                                 : juce::String ("Click / drag cells to program a beat"));
 
     auto scanning = app.isScanning();
     if (scanning || wasScanning)

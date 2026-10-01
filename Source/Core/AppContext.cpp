@@ -41,6 +41,43 @@ private:
 };
 
 //==============================================================================
+class AppContext::RhythmThread : public juce::Thread
+{
+public:
+    RhythmThread (AppContext& o, std::shared_ptr<const tt::LibraryIndex> lib)
+        : juce::Thread ("GroovePlayer rhythm index"), owner (&o), library (std::move (lib)) {}
+
+    ~RhythmThread() override { stopThread (10000); }
+
+    void run() override
+    {
+        tt::RhythmCache cache;
+        cache.load (AppContext::getRhythmCacheFile());
+
+        bool changed = false;
+        auto idx = tt::buildRhythmIndex (library, cache, progress, [this] { return threadShouldExit(); }, changed);
+        if (idx == nullptr || threadShouldExit())
+            return;
+
+        if (changed)
+            cache.save (AppContext::getRhythmCacheFile());
+
+        auto shared = std::make_shared<std::unique_ptr<tt::RhythmIndex>> (std::move (idx));
+        juce::MessageManager::callAsync ([ref = owner, shared]
+        {
+            if (auto* o = ref.get())
+                o->rhythmIndexReady (std::move (*shared));
+        });
+    }
+
+    tt::RhythmProgress progress;
+
+private:
+    juce::WeakReference<AppContext> owner;
+    std::shared_ptr<const tt::LibraryIndex> library;
+};
+
+//==============================================================================
 AppContext::AppContext()
 {
     juce::PropertiesFile::Options o;
@@ -63,13 +100,19 @@ AppContext::AppContext()
     // Load the cached index instantly, scan only when it is missing or stale.
     auto cached = tt::LibraryIndex::load (getIndexCacheFile());
     if (cached != nullptr && cached->roots == getLibraryRoots())
+    {
         index = std::shared_ptr<const tt::LibraryIndex> (std::move (cached));
+        startRhythmIndexing();
+    }
     else
+    {
         rescan();
+    }
 }
 
 AppContext::~AppContext()
 {
+    rhythmThread.reset();
     scanThread.reset();
     loaderPool.removeAllJobs (true, 5000);
     settings->saveIfNeeded();
@@ -136,7 +179,47 @@ juce::String AppContext::getStatusText() const
 void AppContext::indexReady (std::unique_ptr<tt::LibraryIndex> idx)
 {
     index = std::shared_ptr<const tt::LibraryIndex> (std::move (idx));
+    startRhythmIndexing();
     sendChangeMessage();
+}
+
+void AppContext::startRhythmIndexing()
+{
+    rhythmThread.reset();
+    if (index == nullptr || index->grooves.empty())
+        return;
+
+    rhythmThread = std::make_unique<RhythmThread> (*this, index);
+    rhythmThread->startThread (juce::Thread::Priority::background);
+}
+
+void AppContext::rhythmIndexReady (std::unique_ptr<tt::RhythmIndex> idx)
+{
+    if (idx == nullptr || idx->library != index)
+        return; // built for a library that has since been rescanned
+
+    rhythmIndex = std::shared_ptr<const tt::RhythmIndex> (std::move (idx));
+    sendChangeMessage();
+}
+
+bool AppContext::isIndexingRhythms() const
+{
+    return rhythmThread != nullptr && rhythmThread->isThreadRunning();
+}
+
+juce::String AppContext::getRhythmStatusText() const
+{
+    if (isIndexingRhythms())
+    {
+        auto total = juce::jmax (1, rhythmThread->progress.total.load());
+        return "Analysing rhythms for beat search... "
+             + juce::String (100 * rhythmThread->progress.done.load() / total) + "%";
+    }
+
+    if (rhythmIndex == nullptr)
+        return "Beat search index not ready";
+
+    return juce::String ((int) rhythmIndex->prints.size()) + " grooves analysed";
 }
 
 //==============================================================================

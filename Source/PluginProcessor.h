@@ -54,8 +54,9 @@ public:
     const tt::DrumMap& getDrumMap() const { return drumMap; }
     void setDrumMap (const tt::DrumMap&);
 
-    // Preview playback of a groove (looped). Returns the preview id.
-    int startPreview (tt::Groove::Ptr);
+    // Preview playback of a groove (looped). Returns the preview id. With
+    // `updateInPlace` the running preview switches to `g` without restarting.
+    int startPreview (tt::Groove::Ptr, bool updateInPlace = false);
     void stopPreview();
     bool isPreviewing() const { return currentPreview != nullptr; }
     tt::Groove::Ptr getPreviewGroove() const { return currentPreview; }

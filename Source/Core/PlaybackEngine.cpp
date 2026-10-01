@@ -172,14 +172,14 @@ namespace tt
         if (previewActive)
         {
             const int mode = host.isPlaying ? 1 : 0;
-            const bool restart = prevSrc.last != previewTl.get() || prevSrc.mode != mode || ! prevSrc.running;
+            const bool restart = prevSrc.lastId != previewTl->id || prevSrc.mode != mode || ! prevSrc.running;
 
             if (restart)
             {
                 flush (prevSrc, out, 0);
                 prevSrc.mode = mode;
                 prevSrc.running = true;
-                prevSrc.last = previewTl.get();
+                prevSrc.lastId = previewTl->id;
                 prevSrc.clock = 0.0;
 
                 if (mode == 1)
@@ -229,7 +229,7 @@ namespace tt
         {
             flush (prevSrc, out, 0);
             prevSrc.running = false;
-            prevSrc.last = nullptr;
+            prevSrc.lastId = -1;
             previewPosition.store (-1.0);
             playingPreviewId.store (0);
         }

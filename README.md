@@ -20,6 +20,13 @@ There is no MIDI editing. It is a browser and an arranger only.
 - Favourites, sortable columns, and a drum-grid pattern view of the selected groove.
 - The index is built on a background thread and cached. A ~166k groove library scans in about 13 s, and later sessions load it from cache in under half a second.
 
+**Beat search**
+- Click **Beat search** to open a small step grid: Kick / Snare / Cymbal × 16ths, 1 or 2 bars, in 4/4, 3/4, 6/8, 12/8, 5/4, 7/8 or 2/4.
+- "Cymbal" matches any hi-hat, ride, crash, china or splash. Rows you leave empty are ignored ("don't care"). Click or drag to paint cells, and press *Play* to hear your pattern.
+- Results update as you edit. They are ranked by a **Match %** column and respect the other filters (type, feel, tempo, text, folder scope).
+- Scoring: each pattern bar is compared with every bar window of each groove, wrapping like a loop. Hits one 16th off get half credit, so swung or pushed hits still match. Ghost notes and the hi-hat pedal are ignored.
+- The fingerprints are computed in the background after a library scan (first run reads every file once) and cached in `rhythm-index.bin`.
+
 **Preview**
 - Click a groove to audition it (auto-preview can be switched off). It loops and is sent out of the plugin's MIDI output.
 - While the DAW plays, the preview locks to the DAW's bar grid and tempo. While the DAW is stopped it runs on its own clock, at the DAW tempo or at the groove's original tempo.
@@ -34,7 +41,9 @@ There is no MIDI editing. It is a browser and an arranger only.
 
 **Remap**
 - A 128-note In→Out table. Each note can be sent to any output note or muted.
-- Built-in presets: *Toontrack (no remap)* and *Toontrack → General MIDI*. The GM preset is a best-effort mapping built from Toontrack's `instrumentgroups` data; check it against your kit.
+- Built-in presets: *Toontrack (no remap)*, *Toontrack → General MIDI* (best effort), and libraries:
+  - **GetGood Drums:** Matt Halpern Signature, Modern & Massive, Modern & Massive 2, P IV Matt Halpern, Invasion, and One Kit Wonder Aggressive Rock / Architects / Metal. Each preset sends every Toontrack articulation (toms, hi-hat openings, ride, crashes) to the library's default mapping. Toms are spread over however many the kit has, and articulations the kit lacks are muted.
+  - **IOF Drummer 6:** IOF's default mapping (kick 36, snare 38, toms 45–52, hats 57–70, cymbals 74–96). IOF has no hi-hat pedal notes, so Toontrack pedal hits are muted.
 - You can save, import and share presets as XML files in `~/Library/Application Support/SLM/GroovePlayer/Remaps`.
 - The remap applies to playback, previews and **every MIDI file dragged or exported**.
 

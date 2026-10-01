@@ -11,6 +11,7 @@
 #include "Core/Song.h"
 #include "Core/PlaybackEngine.h"
 #include "Core/MidiExport.h"
+#include "Core/RhythmIndex.h"
 
 #include <iostream>
 
@@ -207,6 +208,32 @@ static void testEnginePreview()
     CHECK (r.ons() == 8);
     CHECK (eng.playingPreviewId.load() == 1);
 
+    std::cout << "engine: preview updated in place keeps its position\n";
+    {
+        PlaybackEngine e2;
+        e2.prepare (sr);
+        e2.startPreview (tl);                       // notes 40..43 on beats 0..3
+        Rendered a;
+        juce::int64 c2 = 0;
+        renderHost (e2, a, sr, 120.0, 0.0, 1.5, false, c2, rnd);   // plays beats 0 and 1
+
+        Timeline::Ptr edited = new Timeline (*tl);  // same id: an edit of the pattern
+        for (auto& n : edited->notes) n.note = (juce::uint8) (n.note + 10);
+        e2.startPreview (edited);
+        Rendered b;
+        renderHost (e2, b, sr, 120.0, 0.0, 1.0, false, c2, rnd);   // continues: beat 2 only
+        CHECK (b.ons() == 1);
+        if (b.ons() == 1) CHECK (b.events[0].note == 52);
+
+        Timeline::Ptr other = new Timeline (*edited);
+        other->id = 99;                             // a different groove restarts at beat 0
+        e2.startPreview (other);
+        Rendered c;
+        renderHost (e2, c, sr, 120.0, 0.0, 0.4, false, c2, rnd);
+        CHECK (c.ons() == 1);
+        if (c.ons() >= 1) { CHECK (c.events[0].note == 50); }
+    }
+
     std::cout << "engine: preview at original tempo\n";
     eng.prepare (sr);
     eng.previewAtOriginalTempo.store (true);
@@ -335,12 +362,142 @@ static void testExport()
     CHECK (gm.apply (53) == 53);
     CHECK (gm.apply (21) == 44);
 
+    std::cout << "export: built-in library presets\n";
+    auto presets = DrumMap::builtInPresets();
+    auto find = [&] (const juce::String& n) { for (auto& p : presets) if (p.name == n) return p; return DrumMap(); };
+    CHECK (presets.size() == 11);
+
+    auto halpern = find ("GGD Matt Halpern Signature");
+    CHECK (halpern.apply (36) == 24);   // kick
+    CHECK (halpern.apply (38) == 26);   // snare
+    CHECK (halpern.apply (40) == 26);   // rimshot folds onto snare
+    CHECK (halpern.apply (42) == 47);   // HH closed tip
+    CHECK (halpern.apply (22) == 48);   // HH closed edge
+    CHECK (halpern.apply (44) == 43);   // pedal chick
+    CHECK (halpern.apply (48) == 33 && halpern.apply (41) == 39); // 4 toms
+    CHECK (halpern.apply (53) == 74);   // ride bell
+    CHECK (halpern.apply (0) == -1);    // unknown notes are muted
+
+    auto okwRock = find ("GGD One Kit Wonder: Aggressive Rock"); // 2 toms
+    CHECK (okwRock.apply (48) == 33 && okwRock.apply (45) == 33 && okwRock.apply (43) == 34);
+
+    auto invasion = find ("GGD Invasion"); // 6 toms
+    CHECK (invasion.apply (41) == 37);
+
+    auto mm2 = find ("GGD Modern & Massive 2");
+    CHECK (mm2.apply (36) == 36 && mm2.apply (38) == 38 && mm2.apply (37) == 37);
+    CHECK (mm2.apply (48) == 42 && mm2.apply (41) == 47);
+    CHECK (mm2.apply (44) == 56 && mm2.apply (46) == 55 && mm2.apply (49) == 60 && mm2.apply (57) == 64);
+
+    auto iof = find ("IOF Drummer 6");
+    CHECK (iof.apply (36) == 36 && iof.apply (38) == 38 && iof.apply (37) == 43);
+    CHECK (iof.apply (48) == 45 && iof.apply (47) == 47 && iof.apply (45) == 49 && iof.apply (43) == 51 && iof.apply (41) == 51);
+    CHECK (iof.apply (42) == 57 && iof.apply (22) == 58 && iof.apply (46) == 70 && iof.apply (44) == -1);
+    CHECK (iof.apply (51) == 81 && iof.apply (53) == 86 && iof.apply (49) == 74 && iof.apply (57) == 79);
+    CHECK (iof.apply (52) == 88 && iof.apply (55) == 95);
+
+    for (auto& p : presets)
+        for (auto m : p.map)
+            CHECK (m >= -1 && m <= 127);
+
     DrumMap back;
     auto mapFile = f.getSiblingFile ("gp-test-map.xml");
     CHECK (gm.saveToFile (mapFile) && DrumMap::loadFromFile (mapFile, back));
     CHECK (back.map == gm.map);
     f.deleteFile();
     mapFile.deleteFile();
+}
+
+//==============================================================================
+// Builds a 1-bar 4/4 groove from step strings ("x...x...") per voice.
+static Groove::Ptr grooveFromSteps (const char* kick, const char* snare, const char* hat, int hatNote = 42)
+{
+    Groove::Ptr g = new Groove();
+    g->lengthBeats = 4.0;
+    for (int i = 0; i < 16; ++i)
+    {
+        if (kick[i] == 'x')  g->notes.push_back ({ i * 0.25, 0.1, 36, 110 });
+        if (snare[i] == 'x') g->notes.push_back ({ i * 0.25, 0.1, 38, 110 });
+        if (snare[i] == 'g') g->notes.push_back ({ i * 0.25, 0.1, 38, 15 }); // ghost
+        if (hat[i] == 'x')   g->notes.push_back ({ i * 0.25, 0.1, (juce::uint8) hatNote, 90 });
+    }
+    std::sort (g->notes.begin(), g->notes.end(), [] (auto& a, auto& b) { return a.start < b.start; });
+    return g;
+}
+
+static BarPrint barFromSteps (const char* kick, const char* snare, const char* cym)
+{
+    BarPrint b;
+    for (int i = 0; i < 16; ++i)
+    {
+        if (kick[i] == 'x')  b.kick |= 1u << i;
+        if (snare[i] == 'x') b.snare |= 1u << i;
+        if (cym[i] == 'x')   b.cymbal |= 1u << i;
+    }
+    return b;
+}
+
+static void testBeatSearch()
+{
+    std::cout << "beat search: fingerprints and scoring\n";
+    const char* rockK = "x.......x.x.....";
+    const char* rockS = "....x.......x...";
+    const char* rockH = "x.x.x.x.x.x.x.x.";
+
+    auto rock = makeRhythmPrint (*grooveFromSteps (rockK, rockS, rockH), 4, 4);
+    CHECK (rock.bars.size() == 1 && rock.getStepsPerBar() == 16);
+    CHECK (rock.bars[0] == barFromSteps (rockK, rockS, rockH));
+
+    // Ghost notes are ignored, ride (51) and crash (49) count as "cymbal", pedal (44) doesn't.
+    auto ghosty = makeRhythmPrint (*grooveFromSteps (rockK, "..g.x...g...x...", rockH, 51), 4, 4);
+    CHECK (ghosty.bars[0] == barFromSteps (rockK, rockS, rockH));
+    auto pedal = makeRhythmPrint (*grooveFromSteps (rockK, rockS, rockH, 44), 4, 4);
+    CHECK (pedal.bars[0].cymbal == 0);
+
+    std::vector<BarPrint> query { barFromSteps (rockK, rockS, rockH) };
+    CHECK_NEAR (scoreRhythm (query, 16, rock), 1.0f, 1e-6);
+
+    // Kick + snare only query ignores the cymbal voice
+    std::vector<BarPrint> ksOnly { barFromSteps (rockK, rockS, "................") };
+    CHECK_NEAR (scoreRhythm (ksOnly, 16, rock), 1.0f, 1e-6);
+
+    // One kick pushed by a 16th scores high but below exact; a different beat scores lower.
+    auto pushed = makeRhythmPrint (*grooveFromSteps ("x........xx.....", rockS, rockH), 4, 4);
+    auto halftime = makeRhythmPrint (*grooveFromSteps ("x.........x.....", "........x.......", rockH), 4, 4);
+    auto sPushed = scoreRhythm (query, 16, pushed), sHalf = scoreRhythm (query, 16, halftime);
+    CHECK (sPushed > 0.8f && sPushed < 1.0f);
+    CHECK (sHalf < sPushed);
+
+    // Multi-bar grooves: the best matching bar wins.
+    Groove::Ptr twoBar = new Groove();
+    twoBar->lengthBeats = 8.0;
+    auto bar1 = grooveFromSteps ("x.x.x.x.x.x.x.x.", "x.x.x.x.x.x.x.x.", "................");
+    auto bar2 = grooveFromSteps (rockK, rockS, rockH);
+    for (auto& n : bar1->notes)
+        twoBar->notes.push_back (n);
+    for (auto n : bar2->notes) { n.start += 4.0; twoBar->notes.push_back (n); }
+    auto tb = makeRhythmPrint (*twoBar, 4, 4);
+    CHECK (tb.bars.size() == 2);
+    CHECK (scoreRhythm (query, 16, tb) > 0.85f);
+
+    // Ranking through the index, and meters never mix.
+    RhythmIndex idx;
+    idx.prints = { halftime, rock, pushed, makeRhythmPrint (*grooveFromSteps (rockK, rockS, rockH), 3, 4) };
+    idx.printForGroove = { 0, 1, 2, 3 };
+    auto res = idx.search (query, 4, 4, { 0, 1, 2, 3 }, 0.0f, 10);
+    CHECK (res.size() == 3);
+    if (res.size() == 3)
+        CHECK (res[0].groove == 1 && res[1].groove == 2 && res[2].groove == 0);
+    CHECK (idx.search ({ BarPrint() }, 4, 4, { 0, 1, 2 }, 0.0f, 10).empty());
+
+    // Cache round trip
+    RhythmCache cache, back;
+    cache.byPath["/a.mid"] = rock;
+    cache.byPath["/b.mid"] = tb;
+    auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("gp-rhythm-test.bin");
+    CHECK (cache.save (f) && back.load (f));
+    CHECK (back.byPath.size() == 2 && back.byPath["/b.mid"].bars.size() == 2 && back.byPath["/a.mid"].bars[0] == rock.bars[0]);
+    f.deleteFile();
 }
 
 //==============================================================================
@@ -475,6 +632,7 @@ int main (int argc, char** argv)
     testEnginePreview();
     testSongEditing();
     testExport();
+    testBeatSearch();
 
     juce::File root (defaultLibrary);
     testRealLibrary (root);
