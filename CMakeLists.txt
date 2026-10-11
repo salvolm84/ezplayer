@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.22)
 # binary targets the build machine's macOS version (it then refuses to load on older ones).
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment version")
 
-project(GroovePlayer VERSION 0.1.1)
+project(GroovePlayer VERSION 0.2.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

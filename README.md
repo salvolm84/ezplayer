@@ -36,6 +36,7 @@ There is no MIDI editing. It is a browser and an arranger only.
 - Move parts by dragging; Alt-drag copies. Drag a part's right edge to loop or shorten the groove. Dropped parts overwrite whatever they overlap (it is trimmed or split).
 - Snap to bar, beat, 1/8 or off. Zoom with the buttons or Cmd+wheel. Undo/redo, duplicate (Cmd+D), delete (Backspace).
 - Playback follows the DAW transport, tempo, position and cycle, with sample-accurate timing. Song bar 1 is DAW bar 1.
+- Optional **start from the beginning** mode (Settings, saved with the project): when the DAW starts playing, the song starts from bar 1 wherever the playhead is, at the first DAW bar line reached, so it stays on the DAW grid. Locating while playing restarts the song too. With cycle on, each pass repeats what played over the cycle. If playback started inside the cycle, each pass starts the song from the beginning.
 - Internal Play/Loop for when the DAW is stopped.
 - The song is saved in the DAW project with the MIDI embedded, so projects still open if the library moves.
 

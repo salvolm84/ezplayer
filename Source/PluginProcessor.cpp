@@ -108,6 +108,13 @@ void GroovePlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
 
             if (auto bar = pos->getPpqPositionOfLastBarStart())
                 host.barStartPpq = *bar;
+
+            host.isLooping = pos->getIsLooping();
+            if (auto loop = pos->getLoopPoints())
+            {
+                host.loopStart = loop->ppqStart;
+                host.loopEnd = loop->ppqEnd;
+            }
         }
     }
 
@@ -192,6 +199,7 @@ void GroovePlayerProcessor::getStateInformation (juce::MemoryBlock& dest)
     juce::ValueTree root ("GroovePlayer");
     root.setProperty ("version", 1, nullptr);
     root.setProperty ("loop", engine.loopSong.load(), nullptr);
+    root.setProperty ("songFromStartOnHostPlay", engine.songFromStartOnHostPlay.load(), nullptr);
     root.setProperty ("previewOriginalTempo", engine.previewAtOriginalTempo.load(), nullptr);
     root.setProperty ("fallbackTempo", engine.fallbackTempo.load(), nullptr);
 
@@ -231,6 +239,7 @@ void GroovePlayerProcessor::setStateInformation (const void* data, int size)
 void GroovePlayerProcessor::applyState (const juce::ValueTree& root)
 {
     engine.loopSong.store ((bool) root.getProperty ("loop", false));
+    engine.songFromStartOnHostPlay.store ((bool) root.getProperty ("songFromStartOnHostPlay", false));
     engine.previewAtOriginalTempo.store ((bool) root.getProperty ("previewOriginalTempo", false));
     engine.fallbackTempo.store ((double) root.getProperty ("fallbackTempo", 120.0));
 

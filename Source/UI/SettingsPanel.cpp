@@ -71,12 +71,19 @@ SettingsPanel::SettingsPanel (GroovePlayerProcessor& p) : proc (p)
     fallbackTempo.onValueChange = [this] { proc.engine.fallbackTempo.store (fallbackTempo.getValue()); };
     addAndMakeVisible (fallbackTempo);
 
+    fromStartToggle.setToggleState (proc.engine.songFromStartOnHostPlay.load(), juce::dontSendNotification);
+    fromStartToggle.onClick = [this] { proc.engine.songFromStartOnHostPlay.store (fromStartToggle.getToggleState()); };
+    fromStartToggle.setTooltip ("Off: song bar 1 is DAW bar 1. On: the song starts from bar 1 at the first DAW bar line "
+                                "after the playhead. With cycle on, each pass repeats what played over the cycle; if playback "
+                                "started inside the cycle, each pass starts the song from the beginning. Saved with the project.");
+    addAndMakeVisible (fromStartToggle);
+
     help.setText ("Using GroovePlayer in Cubase:\n"
                   "  1. Add GroovePlayer as an Instrument track.\n"
                   "  2. On your drum instrument's MIDI track set the input to \"GroovePlayer\" (MIDI out), "
                   "enable monitoring - or simply drag parts / the whole song from GroovePlayer onto the drum track.\n"
-                  "  3. Playback follows the Cubase transport, tempo and cycle. Notes come out on the selected MIDI channel "
-                  "with the remap applied.\n\n"
+                  "  3. Playback follows the Cubase transport, tempo and cycle (song bar 1 = DAW bar 1, or wherever "
+                  "playback starts with the option above). Notes come out on the selected MIDI channel with the remap applied.\n\n"
                   "Mouse: drag grooves onto the song track, Alt-drag to copy, drag a part's right edge to loop / shorten it, "
                   "Cmd+wheel to zoom, Backspace to delete, Cmd+D to duplicate, Cmd+Z to undo.",
                   juce::dontSendNotification);
@@ -125,6 +132,8 @@ void SettingsPanel::resized()
     auto t = r.removeFromTop (26);
     tempoLabel.setBounds (t.removeFromLeft (330));
     fallbackTempo.setBounds (t.removeFromLeft (300));
+    r.removeFromTop (10);
+    fromStartToggle.setBounds (r.removeFromTop (26));
     r.removeFromTop (16);
     help.setBounds (r);
 }

@@ -40,6 +40,47 @@ namespace tt
         return juce::jlimit (0, juce::jmax (0, s.numSamples - 1), pos);
     }
 
+    double PlaybackEngine::firstBarAtOrAfter (const HostInfo& host, double ppq)
+    {
+        const auto barLen = host.sigNum * 4.0 / juce::jmax (1, host.sigDen);
+        const auto ref = host.barStartPpq >= 0.0 && host.barStartPpq <= host.ppq + 1.0e-9 ? host.barStartPpq : 0.0;
+        auto bar = ref + std::floor ((ppq - ref) / barLen + 1.0e-9) * barLen;
+        return ppq - bar > 1.0e-3 ? bar + barLen : bar;
+    }
+
+    void PlaybackEngine::trackHostAnchor (const HostInfo& host, double samplesPerBeat, int numSamples)
+    {
+        if (! host.isPlaying)
+        {
+            hostWasPlaying = false;
+            return;
+        }
+
+        const auto blockBeats = numSamples / samplesPerBeat;
+        const bool jumped = std::abs (host.ppq - hostExpected) > juce::jmax (1.0e-6, 2.0 / samplesPerBeat);
+
+        if (! hostWasPlaying)
+        {
+            songAnchor = firstBarAtOrAfter (host, host.ppq);
+        }
+        else if (jumped)
+        {
+            const bool cycleWrap = host.isLooping && host.loopStart >= 0.0 && host.loopEnd > host.loopStart
+                                && host.ppq < hostExpected
+                                && host.ppq > host.loopStart - 1.0e-6
+                                && host.ppq < host.loopStart + juce::jmax (blockBeats, 0.25);
+
+            if (! cycleWrap)
+                songAnchor = firstBarAtOrAfter (host, host.ppq);        // locate: restart the song
+            else if (songAnchor > host.loopStart + 1.0e-6)
+                songAnchor = firstBarAtOrAfter (host, host.loopStart);  // started inside the cycle
+            // else: the cycle repeats what played over it on the first pass
+        }
+
+        hostWasPlaying = true;
+        hostExpected = host.ppq + blockBeats;
+    }
+
     void PlaybackEngine::flush (Source& src, juce::MidiBuffer& out, int samplePos)
     {
         for (int i = 0; i < src.numVoices; ++i)
@@ -162,6 +203,8 @@ namespace tt
 
         auto spbFor = [this] (double bpm) { return sampleRate * 60.0 / juce::jmax (1.0, bpm); };
 
+        trackHostAnchor (host, spbFor (hostBpm), numSamples);
+
         auto previewTl = preview.get();
         auto songTl = song.get();
         const bool previewActive = previewTl != nullptr && previewTl->length > 0.0;
@@ -250,6 +293,7 @@ namespace tt
 
         const bool internal = ! host.isPlaying && internalPlaying.load();
         const bool songRolling = host.isPlaying || internal;
+        const double songOffset = host.isPlaying && songFromStartOnHostPlay.load() ? songAnchor : 0.0;
 
         if (songRolling && ! previewActive && songTl != nullptr)
         {
@@ -260,10 +304,12 @@ namespace tt
             seg.b0 = host.isPlaying ? host.ppq : internalPos;
             seg.b1 = seg.b0 + numSamples / seg.samplesPerBeat;
 
-            if (! songSrc.running || std::abs (seg.b0 - songSrc.expected) > juce::jmax (1.0e-6, 2.0 / seg.samplesPerBeat))
+            if (! songSrc.running || songSrc.anchor != songOffset
+                || std::abs (seg.b0 - songSrc.expected) > juce::jmax (1.0e-6, 2.0 / seg.samplesPerBeat))
                 flush (songSrc, out, 0);
 
             songSrc.running = true;
+            songSrc.anchor = songOffset;
 
             const auto songEnd = songTl->length;
 
@@ -303,7 +349,7 @@ namespace tt
             }
             else
             {
-                render (songSrc, *songTl, out, seg, 0.0, false);
+                render (songSrc, *songTl, out, seg, songOffset, false);
                 emitOffs (songSrc, out, seg, false);
                 songSrc.expected = seg.b1;
 
@@ -324,7 +370,7 @@ namespace tt
                 }
             }
 
-            songPosition.store (host.isPlaying ? seg.b0 : internalPos);
+            songPosition.store (host.isPlaying ? juce::jmax (0.0, seg.b0 - songOffset) : internalPos);
         }
         else
         {
@@ -332,7 +378,7 @@ namespace tt
                 flush (songSrc, out, 0);
 
             songSrc.running = false;
-            songPosition.store (host.isPlaying ? host.ppq : internalPos);
+            songPosition.store (host.isPlaying ? juce::jmax (0.0, host.ppq - songOffset) : internalPos);
 
             if (internal)
                 internalPos += numSamples / spbFor (hostBpm);

@@ -95,7 +95,8 @@ struct Rendered
 
 // Renders `totalBeats` of host playback starting at `startPpq`, with random block sizes.
 static void renderHost (PlaybackEngine& eng, Rendered& r, double sr, double bpm, double startPpq,
-                        double totalBeats, bool playing, juce::int64& sampleClock, juce::Random& rnd)
+                        double totalBeats, bool playing, juce::int64& sampleClock, juce::Random& rnd,
+                        std::function<void (PlaybackEngine::HostInfo&)> tweakHost = {})
 {
     const auto samplesPerBeat = sr * 60.0 / bpm;
     const auto total = (juce::int64) std::llround (totalBeats * samplesPerBeat);
@@ -109,6 +110,8 @@ static void renderHost (PlaybackEngine& eng, Rendered& r, double sr, double bpm,
         h.bpm = bpm;
         h.ppq = startPpq + done / samplesPerBeat;
         h.barStartPpq = std::floor (h.ppq / 4.0) * 4.0;
+        if (tweakHost)
+            tweakHost (h);
 
         juce::MidiBuffer buf;
         eng.process (buf, n, h);
@@ -182,6 +185,113 @@ static void testEngineSong()
         CHECK (e.note == 35);
         CHECK (e.ch == 3);
         if (e.on) CHECK (e.vel == 50);
+    }
+}
+
+static void testEngineSongFromStart()
+{
+    std::cout << "engine: song starts from the beginning on host play\n";
+    juce::Random rnd (11);
+    const double sr = 48000.0, bpm = 120.0, spb = sr * 60.0 / bpm;
+
+    // 16 beats, one distinct note per beat: note 40 + beat
+    Groove::Ptr g = new Groove();
+    g->name = "Steps";
+    g->lengthBeats = 16;
+    for (int i = 0; i < 16; ++i)
+        g->notes.push_back ({ (double) i, 0.25, (juce::uint8) (40 + i), 100 });
+
+    Song song;
+    song.addClip (g, 0.0);
+
+    auto firstOn = [] (const Rendered& r) -> const Rendered::Ev*
+    {
+        for (auto& e : r.events)
+            if (e.on)
+                return &e;
+        return nullptr;
+    };
+
+    PlaybackEngine eng;
+    eng.prepare (sr);
+    eng.setSongTimeline (song.buildTimeline());
+    eng.songFromStartOnHostPlay.store (true);
+
+    // Start on bar 9: song beat 0 plays immediately.
+    {
+        Rendered r;
+        juce::int64 clock = 0;
+        renderHost (eng, r, sr, bpm, 32.0, 4.0, true, clock, rnd);
+        CHECK (r.ons() == 4);
+        if (auto* e = firstOn (r)) { CHECK (e->note == 40); CHECK (e->sample == 0); }
+        CHECK_NEAR (eng.songPosition.load(), 4.0, 0.05);
+        renderHost (eng, r, sr, bpm, 36.0, 0.5, false, clock, rnd);
+        CHECK (r.ons() == r.offs());
+    }
+
+    // Start mid-bar: the song starts at the next bar line (ppq 36).
+    {
+        Rendered r;
+        juce::int64 clock = 0;
+        renderHost (eng, r, sr, bpm, 33.5, 4.0, true, clock, rnd);
+        CHECK (r.ons() == 2);
+        if (auto* e = firstOn (r)) { CHECK (e->note == 40); CHECK (e->sample == (juce::int64) std::llround (2.5 * spb)); }
+        renderHost (eng, r, sr, bpm, 37.5, 0.5, false, clock, rnd);
+    }
+
+    auto cycle = [] (PlaybackEngine::HostInfo& h) { h.isLooping = true; h.loopStart = 32.0; h.loopEnd = 40.0; };
+
+    // Cycle 32..40, started before it at 28: the wrap repeats what played over the
+    // cycle on the first pass (song beats 4..11).
+    {
+        Rendered r;
+        juce::int64 clock = 0;
+        renderHost (eng, r, sr, bpm, 28.0, 12.0, true, clock, rnd, cycle);
+        CHECK (r.ons() == 12);
+        Rendered wrap;
+        renderHost (eng, wrap, sr, bpm, 32.0, 8.0, true, clock, rnd, cycle);
+        CHECK (wrap.ons() == 8);
+        if (auto* e = firstOn (wrap)) CHECK (e->note == 44);
+        renderHost (eng, wrap, sr, bpm, 40.0, 0.5, false, clock, rnd);
+    }
+
+    // Cycle 32..40, started inside it at 34: the song starts at 36, and every wrap
+    // starts it again from the beginning at the cycle start.
+    {
+        Rendered r;
+        juce::int64 clock = 0;
+        renderHost (eng, r, sr, bpm, 34.0, 6.0, true, clock, rnd, cycle);
+        CHECK (r.ons() == 4);
+        if (auto* e = firstOn (r)) CHECK (e->note == 40);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            Rendered wrap;
+            renderHost (eng, wrap, sr, bpm, 32.0, 8.0, true, clock, rnd, cycle);
+            CHECK (wrap.ons() == 8);
+            if (auto* e = firstOn (wrap)) { CHECK (e->note == 40); }
+        }
+        renderHost (eng, r, sr, bpm, 40.0, 0.5, false, clock, rnd);
+    }
+
+    // Locating while playing (no cycle) restarts the song at the new position.
+    {
+        Rendered r;
+        juce::int64 clock = 0;
+        renderHost (eng, r, sr, bpm, 8.0, 6.0, true, clock, rnd);
+        Rendered after;
+        renderHost (eng, after, sr, bpm, 64.0, 2.0, true, clock, rnd);
+        CHECK (after.ons() == 2);
+        if (auto* e = firstOn (after)) CHECK (e->note == 40);
+        renderHost (eng, after, sr, bpm, 66.0, 0.5, false, clock, rnd);
+    }
+
+    // Option off: the song follows the host bar position (song beat = ppq).
+    {
+        eng.songFromStartOnHostPlay.store (false);
+        Rendered r;
+        juce::int64 clock = 0;
+        renderHost (eng, r, sr, bpm, 4.0, 2.0, true, clock, rnd);
+        if (auto* e = firstOn (r)) CHECK (e->note == 44);
     }
 }
 
@@ -629,6 +739,7 @@ int main (int argc, char** argv)
     testNaming();
     testLengths();
     testEngineSong();
+    testEngineSongFromStart();
     testEnginePreview();
     testSongEditing();
     testExport();

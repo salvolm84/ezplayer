@@ -24,6 +24,7 @@ private:
     juce::TextButton addButton { "Add folder..." }, removeButton { "Remove" }, rescanButton { "Rescan library" },
                      closeButton { "Done" };
     juce::Slider fallbackTempo;
+    juce::ToggleButton fromStartToggle { "Start the song from the beginning when the DAW starts playing" };
     std::unique_ptr<juce::FileChooser> chooser;
 
     int getNumRows() override { return rootList.size(); }

@@ -74,6 +74,8 @@ namespace tt
             double bpm = 0.0;           // 0 = unknown
             double barStartPpq = -1.0;  // < 0 = unknown
             int sigNum = 4, sigDen = 4;
+            bool isLooping = false;     // host cycle active
+            double loopStart = -1.0, loopEnd = -1.0; // cycle points (ppq), < 0 = unknown
         };
 
         PlaybackEngine();
@@ -94,6 +96,9 @@ namespace tt
         std::atomic<double> fallbackTempo { 120.0 };
         std::atomic<bool> previewAtOriginalTempo { false };
         std::atomic<bool> loopSong { false };
+        // When the host starts playing, start the song from its beginning (at the first
+        // host bar line reached) instead of following the host bar position.
+        std::atomic<bool> songFromStartOnHostPlay { false };
         std::atomic<bool> internalPlaying { false };
 
         // ---- state reported by the audio thread ----------------------------
@@ -137,6 +142,9 @@ namespace tt
         Source songSrc, prevSrc;
         double sampleRate = 44100.0;
         double internalPos = 0.0;
+        bool hostWasPlaying = false;
+        double hostExpected = -1.0e9;
+        double songAnchor = 0.0;  // host ppq where song beat 0 plays (start-from-beginning mode)
         std::array<int, 128> remapCache {};
         int outChannel = 10;
         float velScale = 1.0f;
@@ -146,5 +154,7 @@ namespace tt
         void render (Source&, const Timeline&, juce::MidiBuffer&, const Segment&, double offset, bool loop);
         void noteOn (Source&, juce::MidiBuffer&, int sample, int note, int vel, double offBeat);
         static int toSample (const Segment& s, double beat);
+        static double firstBarAtOrAfter (const HostInfo&, double ppq);
+        void trackHostAnchor (const HostInfo&, double samplesPerBeat, int numSamples);
     };
 }
