@@ -75,6 +75,16 @@ cmake --build build --target GroovePlayer_VST3 -j
 The VST3 is copied to `~/Library/Audio/Plug-Ins/VST3/GroovePlayer.vst3`. There is also a
 `GroovePlayer_Standalone` target.
 
+For a build to share with other Macs, use a fresh build folder and make it universal:
+
+```sh
+cmake -S . -B build-dist -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+cmake --build build-dist --target GroovePlayer_VST3 GroovePlayer_Standalone -j
+```
+
+The build targets macOS 11 and links only system libraries. Check with
+`otool -L` that no `/opt/homebrew` or `/opt/local` path shows up in the binary.
+
 On first launch the library folder defaults to
 `~/Library/Mobile Documents/com~apple~CloudDocs/Cubase/drums midi/Toontrack` if that folder exists.
 Add or remove folders under **Settings**.

@@ -1,11 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(GroovePlayer VERSION 0.1.0)
+# Must be set before project(), otherwise project() caches an empty value and the
+# binary targets the build machine's macOS version (it then refuses to load on older ones).
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment version")
+
+project(GroovePlayer VERSION 0.1.1)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment version")
 
 set(JUCE_DIR "$ENV{HOME}/JUCE" CACHE PATH "Path to the JUCE repository")
 add_subdirectory("${JUCE_DIR}" JUCE)
@@ -17,7 +20,16 @@ option(GP_BUILD_AS_MIDI_EFFECT "Build as a pure MIDI effect instead of instrumen
 option(GP_BUILD_TESTS "Build the console test runner" ON)
 option(GP_BUILD_PLUGIN "Build the plugin" ON)
 
-find_package(SQLite3 REQUIRED)
+# On macOS link the SDK's SQLite (/usr/lib/libsqlite3.dylib, present on every Mac).
+# find_package can pick up a Homebrew/MacPorts copy (/opt/homebrew, /opt/local) that
+# other machines don't have, and the plugin then fails to load.
+if(APPLE)
+    add_library(GP_SQLite3 INTERFACE)
+    target_link_libraries(GP_SQLite3 INTERFACE sqlite3)
+    add_library(SQLite3::SQLite3 ALIAS GP_SQLite3)
+else()
+    find_package(SQLite3 REQUIRED)
+endif()
 
 if(GP_BUILD_AS_MIDI_EFFECT)
     set(GP_IS_SYNTH FALSE)
