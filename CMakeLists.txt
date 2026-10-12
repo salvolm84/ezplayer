@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.22)
 # binary targets the build machine's macOS version (it then refuses to load on older ones).
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment version")
 
-project(GroovePlayer VERSION 0.2.0)
+project(GroovePlayer VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,10 +13,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(JUCE_DIR "$ENV{HOME}/JUCE" CACHE PATH "Path to the JUCE repository")
 add_subdirectory("${JUCE_DIR}" JUCE)
 
-# Cubase (and most VST3 hosts) only offer MIDI output routing from *instrument*
-# plugins, so by default GroovePlayer is an instrument with a silent stereo output
-# and a MIDI output. Turn this ON to build a pure MIDI effect (no audio buses).
-option(GP_BUILD_AS_MIDI_EFFECT "Build as a pure MIDI effect instead of instrument+MIDI out" OFF)
+# Two plugins are built from the same sources:
+#  - GroovePlayer: an instrument with a silent stereo output and a MIDI output. Cubase
+#    (and most VST3 hosts) only route MIDI out of *instrument* plugins.
+#  - GroovePlayer MIDI: a pure MIDI effect (no audio buses) for hosts with MIDI FX
+#    chains such as Reaper. It goes in front of the drum instrument and audio passes through.
+# They have different plugin IDs, so both can be installed side by side.
+option(GP_BUILD_MIDI_FX "Also build the GroovePlayer MIDI effect plugin" ON)
 option(GP_BUILD_TESTS "Build the console test runner" ON)
 option(GP_BUILD_PLUGIN "Build the plugin" ON)
 
@@ -31,16 +34,6 @@ else()
     find_package(SQLite3 REQUIRED)
 endif()
 
-if(GP_BUILD_AS_MIDI_EFFECT)
-    set(GP_IS_SYNTH FALSE)
-    set(GP_IS_MIDI_FX TRUE)
-    set(GP_VST3_CATS Fx)
-else()
-    set(GP_IS_SYNTH TRUE)
-    set(GP_IS_MIDI_FX FALSE)
-    set(GP_VST3_CATS Instrument Drum)
-endif()
-
 set(GP_CORE_SOURCES
     Source/Core/ToontrackNaming.cpp
     Source/Core/MidiDatabase.cpp
@@ -53,54 +46,83 @@ set(GP_CORE_SOURCES
     Source/Core/RhythmIndex.cpp)
 
 if(GP_BUILD_PLUGIN)
-juce_add_plugin(GroovePlayer
-    COMPANY_NAME "SLM"
+function(gp_add_plugin target)
+    cmake_parse_arguments(GP "MIDI_EFFECT" "PRODUCT_NAME;BUNDLE_ID;PLUGIN_CODE" "FORMATS;VST3_CATEGORIES" ${ARGN})
+
+    if(GP_MIDI_EFFECT)
+        set(is_synth FALSE)
+        set(is_midi_fx TRUE)
+    else()
+        set(is_synth TRUE)
+        set(is_midi_fx FALSE)
+    endif()
+
+    juce_add_plugin(${target}
+        COMPANY_NAME "SLM"
+        BUNDLE_ID "${GP_BUNDLE_ID}"
+        IS_SYNTH ${is_synth}
+        IS_MIDI_EFFECT ${is_midi_fx}
+        NEEDS_MIDI_INPUT TRUE
+        NEEDS_MIDI_OUTPUT TRUE
+        EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+        COPY_PLUGIN_AFTER_BUILD TRUE
+        PLUGIN_MANUFACTURER_CODE SLMm
+        PLUGIN_CODE ${GP_PLUGIN_CODE}
+        VST3_CATEGORIES ${GP_VST3_CATEGORIES}
+        FORMATS ${GP_FORMATS}
+        PRODUCT_NAME "${GP_PRODUCT_NAME}")
+
+    target_sources(${target}
+        PRIVATE
+            ${GP_CORE_SOURCES}
+            Source/Core/AppContext.cpp
+            Source/PluginProcessor.cpp
+            Source/PluginEditor.cpp
+            Source/UI/Theme.cpp
+            Source/UI/PatternView.cpp
+            Source/UI/BrowserComponent.cpp
+            Source/UI/SongLane.cpp
+            Source/UI/TransportBar.cpp
+            Source/UI/RemapEditor.cpp
+            Source/UI/SettingsPanel.cpp
+            Source/UI/BeatSearchPanel.cpp)
+
+    target_include_directories(${target} PRIVATE Source)
+
+    target_compile_definitions(${target}
+        PUBLIC
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0
+            JUCE_VST3_CAN_REPLACE_VST2=0
+            JUCE_DISPLAY_SPLASH_SCREEN=0)
+
+    target_link_libraries(${target}
+        PRIVATE
+            juce::juce_audio_utils
+            SQLite3::SQLite3
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+endfunction()
+
+gp_add_plugin(GroovePlayer
+    PRODUCT_NAME "GroovePlayer"
     BUNDLE_ID "com.slm.grooveplayer"
-    IS_SYNTH ${GP_IS_SYNTH}
-    IS_MIDI_EFFECT ${GP_IS_MIDI_FX}
-    NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT TRUE
-    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    COPY_PLUGIN_AFTER_BUILD TRUE
-    PLUGIN_MANUFACTURER_CODE SLMm
     PLUGIN_CODE GrPl
-    VST3_CATEGORIES ${GP_VST3_CATS}
-    FORMATS VST3 Standalone
-    PRODUCT_NAME "GroovePlayer")
+    VST3_CATEGORIES Instrument Drum
+    FORMATS VST3 Standalone)
 
-target_sources(GroovePlayer
-    PRIVATE
-        ${GP_CORE_SOURCES}
-        Source/Core/AppContext.cpp
-        Source/PluginProcessor.cpp
-        Source/PluginEditor.cpp
-        Source/UI/Theme.cpp
-        Source/UI/PatternView.cpp
-        Source/UI/BrowserComponent.cpp
-        Source/UI/SongLane.cpp
-        Source/UI/TransportBar.cpp
-        Source/UI/RemapEditor.cpp
-        Source/UI/SettingsPanel.cpp
-        Source/UI/BeatSearchPanel.cpp)
-
-target_include_directories(GroovePlayer PRIVATE Source)
-
-target_compile_definitions(GroovePlayer
-    PUBLIC
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0
-        JUCE_DISPLAY_SPLASH_SCREEN=0)
-
-target_link_libraries(GroovePlayer
-    PRIVATE
-        juce::juce_audio_utils
-        SQLite3::SQLite3
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
-        juce::juce_recommended_warning_flags)
-
+if(GP_BUILD_MIDI_FX)
+    # VST3 has no MIDI-effect category; "Fx" puts it with the effects.
+    gp_add_plugin(GroovePlayerMIDI
+        MIDI_EFFECT
+        PRODUCT_NAME "GroovePlayer MIDI"
+        BUNDLE_ID "com.slm.grooveplayer.midifx"
+        PLUGIN_CODE GrPm
+        VST3_CATEGORIES Fx
+        FORMATS VST3)
+endif()
 endif()
 
 if(GP_BUILD_TESTS)

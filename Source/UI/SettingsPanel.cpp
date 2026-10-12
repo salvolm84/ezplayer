@@ -78,12 +78,23 @@ SettingsPanel::SettingsPanel (GroovePlayerProcessor& p) : proc (p)
                                 "started inside the cycle, each pass starts the song from the beginning. Saved with the project.");
     addAndMakeVisible (fromStartToggle);
 
-    help.setText ("Using GroovePlayer in Cubase:\n"
-                  "  1. Add GroovePlayer as an Instrument track.\n"
-                  "  2. On your drum instrument's MIDI track set the input to \"GroovePlayer\" (MIDI out), "
-                  "enable monitoring - or simply drag parts / the whole song from GroovePlayer onto the drum track.\n"
-                  "  3. Playback follows the Cubase transport, tempo and cycle (song bar 1 = DAW bar 1, or wherever "
-                  "playback starts with the option above). Notes come out on the selected MIDI channel with the remap applied.\n\n"
+   #if JucePlugin_IsMidiEffect
+    juce::String hostHelp ("Using GroovePlayer MIDI in Reaper:\n"
+                           "  1. Put GroovePlayer MIDI in the drum track's FX chain, above the drum instrument.\n"
+                           "  2. Its MIDI goes straight to the next plugin in the chain; audio passes through untouched. "
+                           "Turn MIDI Thru off to block the track's own MIDI - or drag parts / the whole song onto a track.\n"
+                           "  3. Playback follows the Reaper transport, tempo and loop (song bar 1 = DAW bar 1, or wherever "
+                           "playback starts with the option above). Notes come out on the selected MIDI channel with the remap applied.\n\n");
+   #else
+    juce::String hostHelp ("Using GroovePlayer in Cubase:\n"
+                           "  1. Add GroovePlayer as an Instrument track.\n"
+                           "  2. On your drum instrument's MIDI track set the input to \"GroovePlayer\" (MIDI out), "
+                           "enable monitoring - or simply drag parts / the whole song from GroovePlayer onto the drum track.\n"
+                           "  3. Playback follows the Cubase transport, tempo and cycle (song bar 1 = DAW bar 1, or wherever "
+                           "playback starts with the option above). Notes come out on the selected MIDI channel with the remap applied.\n\n");
+   #endif
+
+    help.setText (hostHelp +
                   "Mouse: drag grooves onto the song track, Alt-drag to copy, drag a part's right edge to loop / shorten it, "
                   "Cmd+wheel to zoom, Backspace to delete, Cmd+D to duplicate, Cmd+Z to undo.",
                   juce::dontSendNotification);

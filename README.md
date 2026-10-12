@@ -62,7 +62,17 @@ Cubase only routes MIDI *out of* instrument plugins, so GroovePlayer builds as a
 2. To hear it live, set the drum instrument's MIDI track input to the GroovePlayer MIDI output and enable monitoring.
 3. Or drag parts / the whole song straight from GroovePlayer onto the drum track.
 
-To build a pure MIDI effect instead (no audio bus), configure with `-DGP_BUILD_AS_MIDI_EFFECT=ON`.
+## Using it in Reaper
+
+Use **GroovePlayer MIDI**, the MIDI-effect build. It has no audio buses, only MIDI in and out.
+
+1. Insert GroovePlayer MIDI in the drum track's FX chain, above the drum instrument.
+2. Its MIDI goes straight to the next plugin in the chain, and audio passes through untouched.
+   Turn *MIDI Thru* off to stop the track's own MIDI from reaching the instrument.
+3. Or drag parts / the whole song from GroovePlayer onto a track.
+
+Both plugins share settings, favourites, remap presets and the library cache. They have
+different plugin IDs, so a project saved with one doesn't load into the other.
 
 ## Building
 
@@ -70,17 +80,18 @@ You need macOS, Xcode command line tools, CMake ≥ 3.22 and [JUCE 8](https://gi
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DJUCE_DIR=$HOME/JUCE
-cmake --build build --target GroovePlayer_VST3 -j
+cmake --build build --target GroovePlayer_VST3 GroovePlayerMIDI_VST3 -j
 ```
 
-The VST3 is copied to `~/Library/Audio/Plug-Ins/VST3/GroovePlayer.vst3`. There is also a
-`GroovePlayer_Standalone` target.
+The VST3s are copied to `~/Library/Audio/Plug-Ins/VST3/` as `GroovePlayer.vst3` (instrument)
+and `GroovePlayer MIDI.vst3` (MIDI effect). There is also a `GroovePlayer_Standalone` target.
+Configure with `-DGP_BUILD_MIDI_FX=OFF` to skip the MIDI effect.
 
 For a build to share with other Macs, use a fresh build folder and make it universal:
 
 ```sh
 cmake -S . -B build-dist -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-cmake --build build-dist --target GroovePlayer_VST3 GroovePlayer_Standalone -j
+cmake --build build-dist --target GroovePlayer_VST3 GroovePlayerMIDI_VST3 GroovePlayer_Standalone -j
 ```
 
 The build targets macOS 11 and links only system libraries. Check with
